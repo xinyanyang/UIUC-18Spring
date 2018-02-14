@@ -1,0 +1,326 @@
+---
+title: "Homework 1 (STAT 542, Spring 2018)"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+## Name: Xinyan Yang (xinyany2@illinois.edu)
+
+\section{Question 1}
+ 
+\subsection{a) Perform a descriptive analysis on all variables.}
+
+```{r}
+#Initialize
+library(mlbench)
+library(pastecs)
+library(corrgram)
+library(leaps)
+```
+
+```{r}
+#load the data from the mlbench package
+data("BostonHousing")
+```
+
+\textcolor{red}{- check the basic statistics and correlation of variables}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#Use stat.desc to obtain the mean, median and variance statistics
+st = stat.desc(BostonHousing)
+knitr::kable(round(st[c(8, 9, 12), -4],1))
+```
+
+```{r, echo=FALSE, fig.height=4, fig.width=7, message=FALSE, warning=FALSE}
+#check the correlation 
+corrgram(
+    BostonHousing[, c(1:14)],
+    lower.panel = panel.cor,
+    upper.panel = panel.pie,
+    cor.method = "pearson",
+    col.regions = colorRampPalette(c("red", "darkorange",
+  "white", "dodgerblue", "navy"))
+    )
+```
+
+From the above table and plot we can get the following information. Firstly, some variables have extremely larger variance than the other ones such as *zn, age, tax and b*. Also, the *zn* variable have a skew distribution since there's a lage difference between its mean and median. What's more, from the correlation plot we can see that these variables are more or less correlated with each other, which indicates there's a multicolinearity issue in the dataset, and we may need to pay attention to it in the following analysis.
+
+\subsection{b) Perform the best subset selection using BIC criterion.}
+
+```{r, include=FALSE}
+# convert the chas variable to be numeric before do the analysis
+BostonHousing$chas = as.numeric(BostonHousing$chas)
+```
+
+
+```{r, echo=TRUE}
+#Fit the best subset selection
+#set the maximum variables to be all of the variables in the dataset
+subset_fit = regsubsets(medv ~ ., 
+                        data = BostonHousing,
+                        nvmax = ncol(BostonHousing) - 1)
+sumsubset = summary(subset_fit)
+#Using the BIC criteria, get the variables namelist 
+namelist = names(which(sumsubset$which[which.min(sumsubset$bic), ]))
+#fit the model using the selected variables and get their coefficients
+model_bic = lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + b + lstat, data = BostonHousing)
+
+round(model_bic$coefficients, 2)
+```
+
+\subsection{c) Forward stepwise selection using AIC , backward selection using Marrow's Cp}
+
+```{r, echo=TRUE}
+#perform forward selection using AIC
+for_model = step(lm(medv ~ 1, data = BostonHousing), scope = list(upper = lm(medv ~ ., data = BostonHousing), lower =  ~ 1), direction = "forward", trace = 0) 
+round(for_model$coefficients, 2)
+```
+
+```{r, echo=TRUE}
+#perform backward step-wise selection using Cp
+RSSleaps = regsubsets(medv ~ ., data = BostonHousing, nvmax = 13, method = "backward")
+
+sumleaps = summary(RSSleaps)
+namelist = names(which(sumleaps$which[which.min(sumleaps$cp), ]))
+
+# fit the model using the selected variables and get their coefficients
+model_cp = lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + b + lstat, data = BostonHousing)
+round(model_cp$coefficients, 2)
+```
+
+Actually there's no difference between these three models. All of these three choose 11 variables and fit the exactly same models.
+
+\subsection{d) Comment on the selection algorithms.}
+
+**The best subset** does assess all possible models and presents you with the best candidates. So it may provide more information compared to the other algorithms. However, it may take much more *time* especially when there are many predictors since it must possess up to $2^{k}$ models.
+**Stepwise regression** presents you with a single model constructed using the p-values of the predictor variables. It took less time but cannot handle the multicolinearity issue well. And it may also overfit the data. The forward and backward selection are actually the same as stepwise algorithm.
+
+In reality, the cases are complex and we should not expect that an automated algorithm can figure it out for us. Especially when the dimensions are large, the time cost of best subset is huge while the prediction accuracy od stepwise also decreases. 
+
+
+\subsection{e) Comment on the three selection criteria(AIC, BIC, Cp). }
+
+The only difference between AIC and BIC in practice is the size of the penalty; BIC penalizes model complexity more heavily and AIC may chooses a larger model than BIC which may overfitting. Mallow's Cp performs like AIC. In reality, I may prefer BIC criteria when these three disagree on the model to avoid the overfitting problem that AIC may has. 
+
+
+\section{Question 2}
+
+```{r}
+library(readr)
+mn_trn = read_csv("fashion-mnist_train.csv")
+mn_tst = read_csv("fashion-mnist_test.csv")
+```
+
+\subsection{a) Provide a short summary of the dataset and the research goal}
+
+Fashion-MNIST is a dataset of Zalando's article images¡ªconsisting of a training set of 60,000 examples and a test set of 10,000 examples. Each example is a 28x28 grayscale image, associated with a label from 10 classes. Each pixel has a single pixel-value associated with it, indicating the lightness or darkness of that pixel, with higher numbers meaning darker. This pixel-value is an integer between 0 and 255.
+
+The research goal is to find efficient machine learning algorithms for this dataset, so that the Zalando company can replace the orginal MNIST dataset with this new dataset.
+
+\subsection{b) Write your R code for kNN.} 
+
+```{r, echo=TRUE}
+#Write a function to calculate the Euclidean distance between two points
+dist = function(x1, x2) {
+    sqrt(sum((x1 - x2) ^ 2))
+}
+```
+
+```{r, echo=TRUE}
+#Write a function to calculate the distances between all training samples and a target point
+compute_order = function(sample_points, target_point){
+    dist_target = apply(sample_points, 1, dist, x2 = target_point)
+    dist_target[order(dist_target)[1:50]]
+    
+    #sort the distances and choose the 50 nearest points
+    k_near = order(dist_target)[1:50]
+    name_index = names(dist_target[k_near])
+}
+```
+
+```{r, echo=TRUE}
+#Write another function to perform knn algorithm
+predict_knn = function(k, name_index){
+    #calculate the frequencies of each label
+    calc_labels = cbind(c(0:9), rep(0, 10))
+    for (i in 1:k) {
+            label = as.numeric(new_trndata[name_index[i], 1])
+            calc_labels[label + 1, 2] = calc_labels[label + 1, 2] + 1
+    }
+    # predict the target using the most frequent label
+    pred_label = calc_labels[which.max(calc_labels[, 2]), 1]
+    pred_label
+}
+```
+
+\subsection{c) Fit your kNN model to the training data.}
+
+Before doing the knn, I want to improve the speed of the computation first. I will consider both select the important training data and reduce the dimension. Since the latter one is more easy to perform, we first try to perform PCA on the training data in order to reduce the dimesionality.
+
+
+```{r, echo=TRUE}
+#The dataset for PCA should remove the response variable
+pca_mn_trn = prcomp(mn_trn[, -1], scale. = T, center = T)
+```
+
+```{r, include=FALSE}
+# To calculate the proportion of variance explained by a principal component
+get_PVE = function(pca_out) {
+  pca_out$sdev ^ 2 / sum(pca_out$sdev ^ 2)
+}
+pve = get_PVE(pca_mn_trn)
+#compute the total variance explained by the first 50 principal components
+cumsum(pve)[50]
+```
+
+```{r, echo=FALSE, fig.height=4, fig.width=7}
+plot(
+  cumsum(pve)[1:50],
+  xlab = "Principal Component",
+  ylab = "Cumulative Proportion of Variance Explained",
+  main = "Cumulative Proportion of Variance Explained VS PCs",
+  ylim = c(0, 1),
+  type = 'b',
+  col = 'dodgerblue'
+)
+abline(h = 0.80, col = "darkorange", lty = 2)
+```
+
+The plot suggests that only 50 principal components can help us explain over 80% total variance of the data. And I decide to choose the first 50 principal components as my new predictors. To perform KNN, we also need to apply the same rotation matrix on the test data.
+
+```{r, include=FALSE}
+# Choose the first 50 principal components as the new predictors
+pca_trn_data = pca_mn_trn$x[, 1:50]
+# Perform the same rotation matrix on the test data
+pca_tst_data = predict(pca_mn_trn, mn_tst[, -1])[, 1:50]
+rm(pca_mn_trn) # drop unnecessary data to save memory
+```
+
+
+The actual speed of knn classification improved a lot after we performed dimension reduction using PCA. To further speed up the computation, we can consider selecting the important training data since use all 60,000 training observations would cost us much time. According to some articles, we could use some algorithms to remove some instances that may be noise. Here I try to perform the **Holdout Editing Algorithm** which introduced by Wilson, Devijver and Kittler together.
+
+ Basically what we need to do is first try to divide the original dataset into several small equal-size datasets R(i) (Here I choose 15), and then use the R(i+1) to classify the instances in R(i) with the knn rule. The instances that get the wrong labels would be removed from dataset directly.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+# The original dataset is composed of the label column and the training data after PCA
+edit_data = cbind(mn_trn[, 1], pca_trn_data)
+
+# Load this library to get the dataset divide into equal-size small datasets
+library("minDiff")
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# Divide into 15 different subset datasets
+equal = create_groups(edit_data, criteria_scale = c("label"),
+                      sets_n = 15, repetitions = 1, equalize = list(mean))
+
+# Store them into a list
+splitdata = list()
+edit_comp_data = list()
+for (i in 1:15) {
+    splitdata[[i]] = equal[which(equal$newSet == i), -52]
+    #remove the label column
+    edit_comp_data[[i]] = splitdata[[i]][, -1]
+}
+```
+
+
+```{r, include=FALSE}
+#write a function to perform knn in these subset datasets(basically the same with b)
+pred_selectdata = function(k, samplepoint, targetpoint){
+    
+    dist_target = apply(samplepoint[, 2:51], 1, dist, x2 = targetpoint)
+    k_near = order(dist_target)[1:k]
+    
+    #calculate the frequencies of each label
+    calc_labels = cbind(c(0:9), rep(0, 10))
+    for (i in 1:k) {
+            label = as.numeric(samplepoint[k_near, 1])
+            calc_labels[label + 1, 2] = calc_labels[label + 1, 2] + 1
+    }
+    
+    # predict the target using the most frequent one 
+    pred_label = calc_labels[which.max(calc_labels[, 2]), 1]
+    pred_label
+}
+```
+
+
+```{r, echo=TRUE}
+pred_select = list()
+# Get the predicted labels for the first 14 subset datasets
+for (i in 1:14) {
+    pred_select[[i]] = apply(edit_comp_data[[i]], 1, 
+                            pred_selectdata, k = 5, 
+                            samplepoint = splitdata[[i + 1]])
+}
+# The 15th dataset would be predicted using the 1st dataset
+pred_select[[15]] = apply(edit_comp_data[[15]], 1, 
+                          pred_selectdata, k = 5, 
+                          samplepoint = splitdata[[1]])
+
+#Create a list to store the data after removing the wrongly-predicted points
+rem_splitdata = list()
+for (i in 1:15) {
+    rem_splitdata[[i]] = splitdata[[i]][-which(pred_select[[i]] != as.list((splitdata[[i]][, 1]))), ]
+}
+```
+
+```{r, include=FALSE}
+new_trndata = rbind(rem_splitdata[[1]], rem_splitdata[[2]], rem_splitdata[[3]], rem_splitdata[[4]], rem_splitdata[[5]], rem_splitdata[[6]], rem_splitdata[[7]], rem_splitdata[[8]], rem_splitdata[[9]], rem_splitdata[[10]], rem_splitdata[[11]], rem_splitdata[[12]], rem_splitdata[[13]], rem_splitdata[[14]], rem_splitdata[[15]])
+```
+
+```{r, echo=TRUE}
+#Check the dimension of the training data after filter the noise 
+dim(new_trndata)
+```
+
+After the PCA and Holdout Editing Algorithm, the dimension of training dataset now becomes around 43600 cases(may vary since we didn't set seed) and 51 dimensions. Now we begin perform KNN. To further speed up the computation, I will randomly select 20000 cases to be the training data.
+
+```{r, include=FALSE}
+rm(edit_data, equal, pca_trn_data, edit_comp_data, i, pred_select, rem_splitdata, splitdata)
+```
+
+
+```{r, echo=TRUE}
+#Randomly choose 20000 training points 
+train_data = new_trndata[sample(nrow(new_trndata), 20000), -1]
+#Get the distances(each column represents the distances with the target point)
+order_distance = apply(pca_tst_data[, ], 1, compute_order, sample_points = train_data)
+
+#Tune the k values
+ktry = c(1, 3, 5, 7, 11, 21)
+tst_error = rep(0, 6)
+for (i in 1:6) {
+    #use the first 1000 points in the test dataset
+    pred_label = apply(order_distance[, 1:1000], 2, predict_knn, k = ktry[i])
+    #get the testing error
+    tst_error[i] = mean(pred_label != as.list(mn_tst[1:1000, 1])$label)
+}
+```
+
+```{r, echo=FALSE, fig.height=2.5, fig.width=6}
+plot(ktry, tst_error, type = "b", 
+     col = "dodgerblue", 
+     xlab = "k",
+     ylab = "Test Error")
+```
+
+
+As we can see, among the five k values, **k = 3 gives us the best test error, which is near 0.15**. However, k=3 indicates that the model may has a large variance since 3 is too small,  which may decrease the model's stability. As k increases, the testing error first increases, then decreases and finally increases again, this is the same as our intuition. *When k is samll*, the model is sensitive to some noise, while in this case, we filtered some noise points before, which may be the reason that k=3 gives us the best testing accuracy. *As k increases a little bit*, the testing error decreases because the model's variance has decreases. When *k grows to a large enough value* like 7-10 in this case, the decrease of variance no more dominate the bias-variance trade-off, the increase of bias starts to dominate, therefore the total testing error starts to increase. 
+
+In this case, we choose k = 3 as our final model, which can give us a highese test accuracy around **0.85**(may varies around 0.85 since I didn't set seed before). This result is acceptable but still can be improved through some methods. *The degrees of freedom* would be n/k = 20000/3 = 6666 in this case(since we only use 20000 training observations).
+
+\subsection{d) Can you suggest some approaches that can speed up the computation }
+
+For this question, we have discussed a lot in section c. In general, there may be two ways to speed up the computation. 
+*The first would be that select some important training data instead of using all of them*. Like in this case, we use the **holdout editing algorithm** to filter some noise first, which performs good since the overall testing accuracy seems not influenced by the shrinked sample size. What's more, we can try to perform the **dimension reduction** using PCA since it will help us reduce the dimension while at the same time keep the im.*The second way would be that we can find some faster way to find the k neareast neighbors* like using **kd tree**, which is exactly the method that the package RANN uses.
+
+
+
+
